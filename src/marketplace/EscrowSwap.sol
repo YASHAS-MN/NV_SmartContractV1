@@ -2,10 +2,12 @@
 pragma solidity ^0.8.24;
 
 import {EscrowStateMachine} from "./EscrowStateMachine.sol";
+import {EmergencyPause} from "../security/EmergencyPause.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract EscrowSwap {
+contract EscrowSwap is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     struct EscrowAgreement {
@@ -22,6 +24,7 @@ contract EscrowSwap {
     }
 
     EscrowStateMachine public immutable escrowStateMachine;
+    EmergencyPause public immutable emergencyPause;
 
     mapping(bytes32 => EscrowAgreement) private agreements;
 
@@ -44,15 +47,28 @@ contract EscrowSwap {
     error KeyNotRevealed();
     error KeyHashMatchedCannotRefund();
     error InvalidEscrowState();
+    error ProtocolPaused();
 
-    constructor(address _escrowStateMachine) {
-        if (_escrowStateMachine == address(0)) {
+    constructor(address _escrowStateMachine, address _emergencyPause) {
+        if (_escrowStateMachine == address(0) || _emergencyPause == address(0)) {
             revert ZeroAddress();
         }
         escrowStateMachine = EscrowStateMachine(_escrowStateMachine);
+        emergencyPause = EmergencyPause(_emergencyPause);
     }
 
-    function lockFunds(bytes32 escrowId, address paymentToken, uint256 amount, bytes32 encryptedKeyHash) external {
+    modifier whenNotPaused() {
+        if (emergencyPause.paused()) {
+            revert ProtocolPaused();
+        }
+        _;
+    }
+
+    function lockFunds(bytes32 escrowId, address paymentToken, uint256 amount, bytes32 encryptedKeyHash)
+        external
+        nonReentrant
+        whenNotPaused
+    {
         if (paymentToken == address(0)) {
             revert ZeroPaymentToken();
         }
@@ -96,7 +112,7 @@ contract EscrowSwap {
         emit FundsLocked(escrowId, msg.sender, amount);
     }
 
-    function revealKey(bytes32 escrowId, bytes32 revealedKeyHash) external {
+    function revealKey(bytes32 escrowId, bytes32 revealedKeyHash) external whenNotPaused {
         EscrowAgreement storage agreement = agreements[escrowId];
         if (!agreement.exists) {
             revert EscrowDoesNotExist();
@@ -119,7 +135,7 @@ contract EscrowSwap {
         emit KeyRevealed(escrowId);
     }
 
-    function settle(bytes32 escrowId) external {
+    function settle(bytes32 escrowId) external nonReentrant whenNotPaused {
         EscrowAgreement storage agreement = agreements[escrowId];
         if (!agreement.exists) {
             revert EscrowDoesNotExist();
@@ -145,7 +161,7 @@ contract EscrowSwap {
         emit EscrowSettled(escrowId);
     }
 
-    function refund(bytes32 escrowId) external {
+    function refund(bytes32 escrowId) external nonReentrant whenNotPaused {
         EscrowAgreement storage agreement = agreements[escrowId];
         if (!agreement.exists) {
             revert EscrowDoesNotExist();

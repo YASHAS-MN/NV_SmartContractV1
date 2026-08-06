@@ -7,6 +7,8 @@ import "../../src/registry/AssetRegistry.sol";
 import "../../src/marketplace/EscrowStateMachine.sol";
 import "../../src/marketplace/EscrowSwap.sol";
 
+import "../../src/security/EmergencyPause.sol";
+
 contract MockERC20 is ERC20 {
     constructor() ERC20("Mock Token", "MTK") {
         _mint(msg.sender, 1_000_000 * 10 ** 18);
@@ -21,6 +23,7 @@ contract EscrowSwapTest is Test {
     AssetRegistry assetRegistry;
     EscrowStateMachine escrowFSM;
     EscrowSwap escrowSwap;
+    EmergencyPause emergencyPause;
     MockERC20 token;
 
     address seller = address(0x100);
@@ -44,7 +47,8 @@ contract EscrowSwapTest is Test {
     function setUp() public {
         assetRegistry = new AssetRegistry();
         escrowFSM = new EscrowStateMachine(address(assetRegistry));
-        escrowSwap = new EscrowSwap(address(escrowFSM));
+        emergencyPause = new EmergencyPause(address(this));
+        escrowSwap = new EscrowSwap(address(escrowFSM), address(emergencyPause));
         token = new MockERC20();
 
         // Mint tokens to buyer

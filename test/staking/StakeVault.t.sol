@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../../src/access/NebulaAccessControl.sol";
 import "../../src/staking/StakeVault.sol";
+import "../../src/security/EmergencyPause.sol";
 
 contract MockStakeToken is ERC20 {
     constructor() ERC20("Stake Token", "STK") {
@@ -19,6 +20,7 @@ contract MockStakeToken is ERC20 {
 contract StakeVaultTest is Test {
     NebulaAccessControl accessControl;
     StakeVault stakeVault;
+    EmergencyPause emergencyPause;
     MockStakeToken token;
 
     address admin = address(0x1);
@@ -41,9 +43,11 @@ contract StakeVaultTest is Test {
         accessControl.grantValidator(validator1);
         accessControl.grantValidator(validator2);
         accessControl.grantDispute(disputeAdmin);
+
+        emergencyPause = new EmergencyPause(admin);
+        stakeVault = new StakeVault(address(accessControl), address(emergencyPause));
         vm.stopPrank();
 
-        stakeVault = new StakeVault(address(accessControl));
         token = new MockStakeToken();
 
         token.mint(validator1, stakeAmount * 10);

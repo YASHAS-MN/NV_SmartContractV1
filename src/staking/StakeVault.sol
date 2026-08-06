@@ -2,10 +2,12 @@
 pragma solidity ^0.8.24;
 
 import {NebulaAccessControl} from "../access/NebulaAccessControl.sol";
+import {EmergencyPause} from "../security/EmergencyPause.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract StakeVault {
+contract StakeVault is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     enum StakeStatus {
@@ -26,6 +28,7 @@ contract StakeVault {
     }
 
     NebulaAccessControl public immutable accessControl;
+    EmergencyPause public immutable emergencyPause;
 
     mapping(address => Stake) private stakes;
 
@@ -45,15 +48,24 @@ contract StakeVault {
     error StakeStillLocked();
     error SlashAmountExceedsStake();
     error InvalidLockPeriod();
+    error ProtocolPaused();
 
-    constructor(address _accessControl) {
-        if (_accessControl == address(0)) {
+    constructor(address _accessControl, address _emergencyPause) {
+        if (_accessControl == address(0) || _emergencyPause == address(0)) {
             revert ZeroAddress();
         }
         accessControl = NebulaAccessControl(_accessControl);
+        emergencyPause = EmergencyPause(_emergencyPause);
     }
 
-    function depositStake(address token, uint256 amount) external {
+    modifier whenNotPaused() {
+        if (emergencyPause.paused()) {
+            revert ProtocolPaused();
+        }
+        _;
+    }
+
+    function depositStake(address token, uint256 amount) external nonReentrant whenNotPaused {
         if (!accessControl.hasRole(accessControl.VALIDATOR_ROLE(), msg.sender)) {
             revert NotValidator();
         }
@@ -84,7 +96,7 @@ contract StakeVault {
         emit StakeDeposited(msg.sender, amount);
     }
 
-    function lockStake(address validator, uint64 until) external {
+    function lockStake(address validator, uint64 until) external whenNotPaused {
         if (!accessControl.hasRole(accessControl.DISPUTE_ROLE(), msg.sender)) {
             revert NotDisputeRole();
         }
@@ -106,7 +118,7 @@ contract StakeVault {
         emit StakeLocked(validator, until);
     }
 
-    function releaseStake() external {
+    function releaseStake() external nonReentrant whenNotPaused {
         Stake storage stake = stakes[msg.sender];
         if (!stake.exists) {
             revert StakeDoesNotExist();
@@ -129,7 +141,7 @@ contract StakeVault {
         emit StakeReleased(msg.sender);
     }
 
-    function slashStake(address validator, uint256 amount) external {
+    function slashStake(address validator, uint256 amount) external whenNotPaused {
         if (!accessControl.hasRole(accessControl.DISPUTE_ROLE(), msg.sender)) {
             revert NotDisputeRole();
         }
